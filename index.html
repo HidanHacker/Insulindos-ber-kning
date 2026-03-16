@@ -50,6 +50,53 @@
     box-shadow: 0 0 0 3px rgba(24,95,165,0.1);
   }
   .time-hint { font-size: 11px; color: #999; margin-top: 5px; }
+ 
+  /* IOB question */
+  .iob-question {
+    font-size: 15px;
+    font-weight: 500;
+    color: #1a1a1a;
+    margin-bottom: 14px;
+    line-height: 1.4;
+  }
+  .iob-buttons { display: flex; gap: 10px; }
+  .iob-btn {
+    flex: 1;
+    padding: 13px;
+    font-size: 16px;
+    font-weight: 600;
+    border: 2px solid #ddd;
+    border-radius: 12px;
+    cursor: pointer;
+    background: #fff;
+    color: #555;
+    transition: all 0.15s;
+  }
+  .iob-btn:active { transform: scale(0.97); }
+  .iob-btn.selected-yes {
+    background: #fff8ed;
+    border-color: #f5a623;
+    color: #7a4f00;
+  }
+  .iob-btn.selected-no {
+    background: #f0f5fb;
+    border-color: #185FA5;
+    color: #185FA5;
+  }
+  .iob-warning {
+    background: #fff8ed;
+    border: 1px solid #f5a623;
+    border-left: 3px solid #f5a623;
+    color: #7a4f00;
+    font-size: 14px;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-top: 12px;
+    line-height: 1.6;
+    font-weight: 500;
+    display: none;
+  }
+ 
   .btn {
     width: 100%;
     padding: 15px;
@@ -64,6 +111,19 @@
     box-shadow: 0 2px 8px rgba(24,95,165,0.25);
   }
   .btn:active { transform: scale(0.98); opacity: 0.9; }
+  .btn:disabled {
+    background: #bbb;
+    box-shadow: none;
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  .iob-hint {
+    font-size: 13px;
+    color: #c0392b;
+    text-align: center;
+    margin-bottom: 8px;
+    display: none;
+  }
   .loading {
     text-align: center;
     padding: 1.5rem;
@@ -171,7 +231,20 @@
     <h1>Viggo – insulindos</h1>
     <p>Måltidsberäkning (Fiasp) för skolpersonal</p>
   </div>
-
+ 
+  <!-- IOB question -->
+  <div class="card">
+    <div class="iob-question">Har Viggo aktivt insulin i kroppen?</div>
+    <div class="iob-buttons">
+      <button class="iob-btn" id="btn-yes" onclick="selectIOB('yes')">JA</button>
+      <button class="iob-btn" id="btn-no" onclick="selectIOB('no')">NEJ</button>
+    </div>
+    <div class="iob-warning" id="iob-warning">
+      ⚠️ Viggos insulindos måste minskas pga aktivt insulin. Kontakta förälder eller följ Viggos vårdplan.
+    </div>
+  </div>
+ 
+  <!-- Calculator -->
   <div class="card">
     <div class="field">
       <label>Kolhydrater (g)</label>
@@ -188,13 +261,14 @@
     </div>
     <p id="err-msg" class="err-msg">Fyll i kolhydrater och blodsocker.</p>
   </div>
-
-  <button class="btn" onclick="calculate()">Beräkna insulindos</button>
-
+ 
+  <p class="iob-hint" id="iob-hint">Svara på frågan om aktivt insulin först</p>
+  <button class="btn" id="calc-btn" onclick="calculate()" disabled>Beräkna insulindos</button>
+ 
   <div class="loading" id="loading">
     <span class="spinner"></span>Beräknar...
   </div>
-
+ 
   <div class="result-card" id="result">
     <div class="result-label">Rekommenderad dos</div>
     <div class="dose-big" id="total-dose">–</div>
@@ -203,11 +277,22 @@
     <div id="warning-box" style="display:none"></div>
     <div class="comment" id="comment-box"></div>
   </div>
-
+ 
   <p class="disclaimer">Detta är ett beräkningsverktyg – inte medicinsk rådgivning.<br>Vid osäkerhet, kontakta Viggos vårdgivare eller förälder.</p>
 </div>
-
+ 
 <script>
+let iobSelected = null;
+ 
+function selectIOB(val) {
+  iobSelected = val;
+  document.getElementById('btn-yes').className = 'iob-btn' + (val === 'yes' ? ' selected-yes' : '');
+  document.getElementById('btn-no').className = 'iob-btn' + (val === 'no' ? ' selected-no' : '');
+  document.getElementById('iob-warning').style.display = val === 'yes' ? 'block' : 'none';
+  document.getElementById('calc-btn').disabled = false;
+  document.getElementById('iob-hint').style.display = 'none';
+}
+ 
 function getTimeInfo(timeStr) {
   const [h, m] = timeStr.split(':').map(Number);
   const mins = h * 60 + m;
@@ -220,7 +305,7 @@ function getTimeInfo(timeStr) {
     return { ratio: 19, isf: 6.0, target: 6.0, period: 'natt' };
   return { ratio: 19, isf: 6.0, target: 6.0, period: 'dagtid (10:31–19:59)' };
 }
-
+ 
 function roundHalf(n) { return Math.round(n * 2) / 2; }
 function fmt(n) { return n.toFixed(2).replace('.', ','); }
 function fmtOut(n) {
@@ -231,34 +316,37 @@ function getCurrentTime() {
   const now = new Date();
   return String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
 }
-
+ 
 async function calculate() {
   const carbs = parseFloat(document.getElementById('carbs').value);
   let timeVal = document.getElementById('time').value;
   const bs = parseFloat(document.getElementById('bs').value.replace(',', '.'));
   const errMsg = document.getElementById('err-msg');
   errMsg.style.display = 'none';
-
+ 
   if (isNaN(carbs) || isNaN(bs)) { errMsg.style.display = 'block'; return; }
   if (!timeVal) timeVal = getCurrentTime();
-
+ 
   const { ratio, isf, target, period } = getTimeInfo(timeVal);
   const carbDose = carbs / ratio;
   const corrDose = (bs - target) / isf;
   const totalRaw = carbDose + corrDose;
   const totalRounded = roundHalf(Math.max(0, totalRaw));
-
+ 
   document.getElementById('loading').style.display = 'block';
   document.getElementById('result').classList.remove('visible');
-
+ 
+  const iobNote = iobSelected === 'yes' ? 'OBS: Viggo har aktivt insulin i kroppen (IOB). Påminn i kommentaren att dosen bör minskas och att förälder/vårdgivare bör kontaktas.' : '';
+ 
   const prompt = `Du är en insulindosassistent för Viggo. Ge ENBART en kort kommentar (1-2 meningar, svenska) baserat på denna beräkning. Inga uträkningar – bara kommentaren.
 Period: ${period}
 Kolhydrater: ${carbs} g, Kvot: 1 E / ${ratio} g
 Blodsocker: ${bs.toFixed(1).replace('.', ',')} mmol/L, Mål: ${target} mmol/L, ISF: ${isf}
 Kolhydratdos: ${fmt(carbDose)} E, Korrigering: ${fmt(corrDose)} E
 Totaldos avrundad: ${fmtOut(totalRounded)} E
+${iobNote}
 Om BS är extremt lågt (<3.5) eller högt (>20), flagga detta tydligt. Ingen medicinsk rådgivning utöver beräkningskommentaren.`;
-
+ 
   let comment = '';
   try {
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
@@ -275,10 +363,10 @@ Om BS är extremt lågt (<3.5) eller högt (>20), flagga detta tydligt. Ingen me
   } catch (e) {
     comment = 'Kommentar ej tillgänglig just nu – beräkningen ovan stämmer.';
   }
-
+ 
   document.getElementById('loading').style.display = 'none';
   document.getElementById('total-dose').textContent = fmtOut(totalRounded);
-
+ 
   const corrSign = corrDose >= 0 ? '+' : '';
   document.getElementById('steps-box').innerHTML = `
     <div class="step-row"><span class="step-label">Kolhydratdos</span><span class="step-val">${carbs} ÷ ${ratio} = ${fmt(carbDose)} E</span></div>
@@ -286,23 +374,26 @@ Om BS är extremt lågt (<3.5) eller högt (>20), flagga detta tydligt. Ingen me
     <hr class="divider">
     <div class="step-row"><span class="step-label">Totaldos (rå)</span><span class="step-val">${fmt(totalRaw)} E</span></div>
     <div class="step-row"><span class="step-label">Avrundad till 0,5 E-steg</span><span class="step-val highlight">${fmtOut(totalRounded)} E</span></div>`;
-
+ 
   const warnBox = document.getElementById('warning-box');
-  if (bs < 3.5) {
+  let warnings = [];
+  if (iobSelected === 'yes') warnings.push('⚠️ Viggo har aktivt insulin – dosen måste minskas. Kontakta förälder eller följ vårdplanen.');
+  if (bs < 3.5) warnings.push(`⚠️ Lågt blodsocker (${bs.toFixed(1).replace('.',',')} mmol/L) – följ Viggos vårdplan och kontakta förälder/vårdgivare.`);
+  else if (bs > 20) warnings.push(`⚠️ Högt blodsocker (${bs.toFixed(1).replace('.',',')} mmol/L) – följ Viggos vårdplan och kontakta förälder/vårdgivare.`);
+ 
+  if (warnings.length > 0) {
     warnBox.style.display = 'block';
-    warnBox.innerHTML = `<div class="warning">⚠️ Lågt blodsocker (${bs.toFixed(1).replace('.',',')} mmol/L) – följ Viggos vårdplan och kontakta förälder/vårdgivare.</div>`;
-  } else if (bs > 20) {
-    warnBox.style.display = 'block';
-    warnBox.innerHTML = `<div class="warning">⚠️ Högt blodsocker (${bs.toFixed(1).replace('.',',')} mmol/L) – följ Viggos vårdplan och kontakta förälder/vårdgivare.</div>`;
+    warnBox.innerHTML = warnings.map(w => `<div class="warning">${w}</div>`).join('');
   } else {
     warnBox.style.display = 'none';
   }
-
+ 
   document.getElementById('comment-box').textContent = comment;
   document.getElementById('result').classList.add('visible');
 }
-
+ 
 document.getElementById('time').value = getCurrentTime();
 </script>
 </body>
 </html>
+ 
